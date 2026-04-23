@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { authAPI } from '../services/api'
+import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 
 const AuthContext = createContext(null)
@@ -20,78 +20,80 @@ export const AuthProvider = ({ children }) => {
   // Check if user is logged in on mount
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('token')
-      const savedUser = localStorage.getItem('user')
-
-      if (token && savedUser) {
-        try {
-          // Verify token is still valid by fetching current user
-          const { data } = await authAPI.getCurrentUser()
-          setUser(data.data.user)
-          setIsAuthenticated(true)
-        } catch (error) {
-          // Token is invalid or expired
-          console.error('Auth initialization failed:', error)
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
-        }
-      } else if (savedUser) {
-        // Restore user from localStorage if no API call needed
-        setUser(JSON.parse(savedUser))
+      // Get current session
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (session) {
+        setUser(session.user)
         setIsAuthenticated(true)
       }
-
+      
       setIsLoading(false)
     }
 
     initAuth()
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          setUser(session.user)
+          setIsAuthenticated(true)
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null)
+          setIsAuthenticated(false)
+        }
+      }
+    )
+
+    return () => subscription.unsubscribe()
   }, [])
 
   // Register new user
-  const register = useCallback(async (userData) => {
+  const register = useCallback(async ({ name, email, password }) => {
     try {
       setIsLoading(true)
-      const { data } = await authAPI.register(userData)
       
-      const { user, token } = data.data
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name }
+        }
+      })
       
-      localStorage.setItem('token', token)
-      localStorage.setItem('user', JSON.stringify(user))
+      if (error) throw error
       
-      setUser(user)
-      setIsAuthenticated(true)
-      
-      toast.success('Registration successful!')
-      return { success: true, user }
+      toast.success('Registration successful! Check your email to confirm.')
+      return { success: true, user: data.user }
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed'
-      toast.error(message)
-      return { success: false, error: message }
+      toast.error(error.message || 'Registration failed')
+      return { success: false, error: error.message }
     } finally {
       setIsLoading(false)
     }
   }, [])
 
   // Login user
-  const login = useCallback(async (credentials) => {
+  const login = useCallback(async ({ email, password }) => {
     try {
       setIsLoading(true)
-      const { data } = await authAPI.login(credentials)
       
-      const { user, token } = data.data
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
       
-      localStorage.setItem('token', token)
-      localStorage.setItem('user', JSON.stringify(user))
+      if (error) throw error
       
-      setUser(user)
+      setUser(data.user)
       setIsAuthenticated(true)
       
-      toast.success(`Welcome back, ${user.name}!`)
-      return { success: true, user }
+      toast.success(`Welcome back!`)
+      return { success: true, user: data.user }
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed'
-      toast.error(message)
-      return { success: false, error: message }
+      toast.error(error.message || 'Login failed')
+      return { success: false, error: error.message }
     } finally {
       setIsLoading(false)
     }
@@ -100,33 +102,14 @@ export const AuthProvider = ({ children }) => {
   // Logout user
   const logout = useCallback(async () => {
     try {
-      await authAPI.logout()
-    } catch (error) {
-      console.error('Logout API error:', error)
-    } finally {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      
       setUser(null)
       setIsAuthenticated(false)
       toast.success('Logged out successfully')
-    }
-  }, [])
-
-  // Update user profile
-  const updateProfile = useCallback(async (updates) => {
-    try {
-      const { data } = await authAPI.updateProfile(updates)
-      const updatedUser = data.data.user
-      
-      localStorage.setItem('user', JSON.stringify(updatedUser))
-      setUser(updatedUser)
-      
-      toast.success('Profile updated successfully')
-      return { success: true, user: updatedUser }
     } catch (error) {
-      const message = error.response?.data?.message || 'Failed to update profile'
-      toast.error(message)
-      return { success: false, error: message }
+      toast.error(error.message || 'Logout failed')
     }
   }, [])
 
@@ -137,7 +120,6 @@ export const AuthProvider = ({ children }) => {
     register,
     login,
     logout,
-    updateProfile,
   }
 
   return (

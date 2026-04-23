@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { documentAPI, collaboratorAPI } from '../services/api'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { 
   FileText, 
@@ -21,6 +22,7 @@ import toast from 'react-hot-toast'
 
 const DashboardPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [documents, setDocuments] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -40,10 +42,34 @@ const DashboardPage = () => {
 
   const fetchDocuments = async () => {
     try {
-      const { data } = await documentAPI.getAll()
-      setDocuments(data.data.documents || [])
+      // Get documents where user is owner
+      const { data: ownedDocs, error: ownedError } = await supabase
+        .from('documents')
+        .select('*, owner:owner_id(*)')
+        .eq('owner_id', user.id)
+
+      // Get documents where user is collaborator
+      const { data: collabDocs, error: collabError } = await supabase
+        .from('document_collaborators')
+        .select('document:document_id(*, owner:owner_id(*)), role')
+        .eq('user_id', user.id)
+
+      if (ownedError || collabError) throw ownedError || collabError
+
+      // Combine and format documents
+      const allDocs = [
+        ...(ownedDocs || []).map(d => ({ ...d, role: 'owner', is_owner: true })),
+        ...(collabDocs || []).map(c => ({ 
+          ...c.document, 
+          role: c.role, 
+          is_owner: false 
+        }))
+      ]
+
+      setDocuments(allDocs)
     } catch (error) {
       toast.error('Failed to load documents')
+      console.error(error)
     } finally {
       setIsLoading(false)
     }
@@ -58,15 +84,26 @@ const DashboardPage = () => {
 
     setIsCreating(true)
     try {
-      const { data } = await documentAPI.create({ title: newDocTitle })
-      const newDoc = data.data.document
+      const { data, error } = await supabase
+        .from('documents')
+        .insert([{ 
+          title: newDocTitle,
+          owner_id: user.id
+        }])
+        .select('*, owner:owner_id(*)')
+        .single()
+
+      if (error) throw error
+
+      const newDoc = { ...data, role: 'owner', is_owner: true }
       setDocuments([newDoc, ...documents])
       setShowCreateModal(false)
       setNewDocTitle('')
       toast.success('Document created!')
-      navigate(`/editor/${newDoc.id}`)
+      navigate(`/editor/${data.id}`)
     } catch (error) {
       toast.error('Failed to create document')
+      console.error(error)
     } finally {
       setIsCreating(false)
     }
@@ -77,11 +114,18 @@ const DashboardPage = () => {
     if (!window.confirm('Are you sure you want to delete this document?')) return
 
     try {
-      await documentAPI.delete(docId)
+      const { error } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', docId)
+
+      if (error) throw error
+
       setDocuments(documents.filter(d => d.id !== docId))
       toast.success('Document deleted')
     } catch (error) {
       toast.error('Failed to delete document')
+      console.error(error)
     }
   }
 
@@ -107,12 +151,53 @@ const DashboardPage = () => {
 
     setIsJoining(true)
     try {
-      const { data } = await collaboratorAPI.joinViaShare(joinShareId.trim())
+      // Find document by share_id
+      const { data: doc, error: docError } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('share_id', joinShareId.trim().toUpperCase())
+        .single()
+
+      if (docError || !doc) {
+        throw new Error('Invalid share ID')
+      }
+
+      // Check if already collaborator or owner
+      if (doc.owner_id === user.id) {
+        toast.success('You are the owner of this document')
+        navigate(`/editor/${doc.id}`)
+        return
+      }
+
+      const { data: existingCollab } = await supabase
+        .from('document_collaborators')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('user_id', user.id)
+        .single()
+
+      if (existingCollab) {
+        toast.success('You already have access to this document')
+        navigate(`/editor/${doc.id}`)
+        return
+      }
+
+      // Add as viewer
+      const { error: collabError } = await supabase
+        .from('document_collaborators')
+        .insert([{
+          document_id: doc.id,
+          user_id: user.id,
+          role: 'viewer'
+        }])
+
+      if (collabError) throw collabError
+
       toast.success('Joined document!')
       setJoinShareId('')
-      navigate(`/editor/${data.data.document.id}`)
+      navigate(`/editor/${doc.id}`)
     } catch (error) {
-      toast.error('Invalid share ID or already have access')
+      toast.error(error.message || 'Invalid share ID')
     } finally {
       setIsJoining(false)
     }

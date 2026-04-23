@@ -227,3 +227,17 @@ CREATE TRIGGER update_users_updated_at
 -- Note: Uncomment and modify if you want sample data
 -- INSERT INTO users (name, email, password) VALUES 
 -- ('Demo User', 'demo@example.com', '$2a$12$...'); -- Password should be bcrypt hashed
+
+-- ============================================
+-- REALTIME (OPTIONAL - enables Supabase Realtime)
+-- ============================================
+-- Enable the realtime extension for these tables
+-- Note: This is optional as Socket.IO handles real-time features
+
+BEGIN;
+
+ALTER PUBLICATION supabase_realtime ADD TABLE documents;
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE document_collaborators;
+
+COMMIT;
