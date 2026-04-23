@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-400 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+/* Animation utilities */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-in-out;
+  }
+  
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Editor specific styles */
+.document-editor {
+  @apply min-h-[500px] p-8 bg-white rounded-lg shadow-sm border border-gray-200;
+  outline: none;
+  line-height: 1.6;
+}
+
+.document-editor:empty::before {
+  content: attr(placeholder);
+  @apply text-gray-400;
+}
+
+.document-editor h1 {
+  @apply text-3xl font-bold mb-4;
+}
+
+.document-editor h2 {
+  @apply text-2xl font-bold mb-3;
+}
+
+.document-editor h3 {
+  @apply text-xl font-bold mb-2;
+}
+
+.document-editor p {
+  @apply mb-3;
+}
+
+.document-editor ul {
+  @apply list-disc pl-5 mb-3;
+}
+
+.document-editor ol {
+  @apply list-decimal pl-5 mb-3;
+}
+
+.document-editor blockquote {
+  @apply border-l-4 border-gray-300 pl-4 italic text-gray-600;
+}
+
+.document-editor pre {
+  @apply bg-gray-100 p-3 rounded font-mono text-sm mb-3;
+}
+
+/* Live cursor styles */
+.live-cursor {
+  @apply absolute pointer-events-none transition-all duration-150 z-50;
+}
+
+.live-cursor-label {
+  @apply absolute -top-6 left-0 px-2 py-0.5 rounded text-xs font-medium text-white whitespace-nowrap;
+}
+
+/* Chat styles */
+.chat-message {
+  @apply max-w-[85%] p-3 rounded-2xl text-sm;
+}
+
+.chat-message-own {
+  @apply bg-primary-500 text-white rounded-br-none;
+}
+
+.chat-message-other {
+  @apply bg-gray-100 text-gray-800 rounded-bl-none;
+}
