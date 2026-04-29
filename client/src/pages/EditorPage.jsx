@@ -8,8 +8,6 @@ import {
   ArrowLeft,
   Share2,
   MessageSquare,
-  Save,
-  Loader2,
   Send,
   X
 } from 'lucide-react'
@@ -33,6 +31,9 @@ const EditorPage = () => {
   
   const chatEndRef = useRef(null)
   const saveTimeoutRef = useRef(null)
+  const realtimeChannelRef = useRef(null)
+  const contentRef = useRef('')
+  const titleRef = useRef('')
 
   // Load document
   useEffect(() => {
@@ -61,6 +62,8 @@ const EditorPage = () => {
         setDocument(doc)
         setContent(doc.content || '')
         setTitle(doc.title)
+        contentRef.current = doc.content || ''
+        titleRef.current = doc.title
         setCanEdit(isOwner || collabRole === 'editor')
 
         // Load messages
@@ -86,22 +89,41 @@ const EditorPage = () => {
   useEffect(() => {
     if (isLoading) return
 
-    // Subscribe to document updates
     const docSubscription = supabase
-      .channel(`doc-${documentId}`)
+      .channel(`doc-${documentId}`, {
+        config: {
+          broadcast: { self: false },
+        },
+      })
+      .on('broadcast', { event: 'document-change' }, ({ payload }) => {
+        if (payload.userId === user?.id) return
+
+        if (typeof payload.content === 'string' && payload.content !== contentRef.current) {
+          contentRef.current = payload.content
+          setContent(payload.content)
+        }
+
+        if (typeof payload.title === 'string' && payload.title !== titleRef.current) {
+          titleRef.current = payload.title
+          setTitle(payload.title)
+        }
+      })
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'documents', filter: `id=eq.${documentId}` },
         (payload) => {
-          if (payload.new.content !== content) {
+          if (payload.new.content !== contentRef.current) {
+            contentRef.current = payload.new.content || ''
             setContent(payload.new.content)
           }
-          if (payload.new.title !== title) {
+          if (payload.new.title !== titleRef.current) {
+            titleRef.current = payload.new.title || ''
             setTitle(payload.new.title)
           }
         }
       )
       .subscribe()
+    realtimeChannelRef.current = docSubscription
 
     // Subscribe to new messages
     const msgSubscription = supabase
@@ -116,10 +138,14 @@ const EditorPage = () => {
       .subscribe()
 
     return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+      realtimeChannelRef.current = null
       docSubscription.unsubscribe()
       msgSubscription.unsubscribe()
     }
-  }, [documentId, isLoading, content, title])
+  }, [documentId, isLoading, user?.id])
 
   // Auto-scroll chat
   useEffect(() => {
@@ -128,48 +154,55 @@ const EditorPage = () => {
     }
   }, [messages, showChat])
 
-  // Debounced auto-save
-  const handleContentChange = (e) => {
-    if (!canEdit) return
-    
-    const newContent = e.target.value
-    setContent(newContent)
+  const broadcastDocumentChange = (updates) => {
+    realtimeChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'document-change',
+      payload: {
+        userId: user.id,
+        ...updates,
+      },
+    })
+  }
 
-    // Clear existing timeout
+  const scheduleAutoSave = (updates) => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
 
-    // Auto-save after 1 second
+    setIsSaving(true)
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         await supabase
           .from('documents')
-          .update({ content: newContent })
+          .update(updates)
           .eq('id', documentId)
       } catch (error) {
         console.error('Auto-save failed:', error)
+      } finally {
+        setIsSaving(false)
       }
-    }, 1000)
+    }, 500)
   }
 
-  // Save document
-  const handleSave = async () => {
+  const handleTitleChange = (e) => {
     if (!canEdit) return
-    
-    setIsSaving(true)
-    try {
-      await supabase
-        .from('documents')
-        .update({ title, content })
-        .eq('id', documentId)
-      
-      toast.success('Document saved')
-    } catch (error) {
-      toast.error('Failed to save')
-    } finally {
-      setIsSaving(false)
-    }
+
+    const newTitle = e.target.value
+    titleRef.current = newTitle
+    setTitle(newTitle)
+    broadcastDocumentChange({ title: newTitle })
+    scheduleAutoSave({ title: newTitle, content: contentRef.current })
+  }
+
+  const handleContentChange = (e) => {
+    if (!canEdit) return
+
+    const newContent = e.target.value
+    contentRef.current = newContent
+    setContent(newContent)
+    broadcastDocumentChange({ content: newContent })
+    scheduleAutoSave({ title: titleRef.current, content: newContent })
   }
 
   // Send message
@@ -229,12 +262,12 @@ const EditorPage = () => {
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={handleTitleChange}
               disabled={!canEdit}
               className="font-semibold text-lg bg-transparent border-none focus:outline-none focus:ring-0 disabled:text-gray-600"
             />
             <div className="text-sm text-gray-500">
-              {isSaving ? 'Saving...' : 'Auto-saves every second'}
+              {isSaving ? 'Saving...' : 'Live auto-save'}
             </div>
           </div>
         </div>
@@ -247,17 +280,6 @@ const EditorPage = () => {
             <Share2 className="h-4 w-4" />
             Share
           </button>
-
-          {canEdit && (
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save
-            </button>
-          )}
 
           <button
             onClick={() => setShowChat(!showChat)}
