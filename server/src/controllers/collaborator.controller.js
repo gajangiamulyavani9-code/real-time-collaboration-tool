@@ -241,21 +241,25 @@ export const joinViaShareLink = asyncHandler(async (req, res) => {
   );
 
   if (existingCollab) {
+    if (existingCollab.role !== 'editor') {
+      await db.collaborators.updateRole(document.id, req.user.id, 'editor');
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'You already have access to this document',
+      message: 'You already have edit access to this document',
       data: { 
         document: { id: document.id },
-        role: existingCollab.role
+        role: 'editor'
       }
     });
   }
 
-  // Add as viewer by default when joining via share link
+  // Share links grant edit access so both sender and recipient can write.
   const { data: collaborator, error } = await db.collaborators.add(
     document.id,
     req.user.id,
-    'viewer'
+    'editor'
   );
 
   if (error) {
@@ -267,7 +271,7 @@ export const joinViaShareLink = asyncHandler(async (req, res) => {
     message: 'Successfully joined document',
     data: { 
       document: { id: document.id },
-      role: 'viewer'
+      role: 'editor'
     }
   });
 });

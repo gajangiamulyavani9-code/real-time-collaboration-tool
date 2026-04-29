@@ -84,23 +84,41 @@ const DashboardPage = () => {
 
     setIsCreating(true)
     try {
-      const { data, error } = await supabase
+      const documentId = crypto.randomUUID()
+
+      const { error } = await supabase
         .from('documents')
         .insert([{ 
+          id: documentId,
           title: newDocTitle,
           owner_id: user.id
         }])
-        .select('*, owner:owner_id(*)')
-        .single()
 
       if (error) throw error
 
-      const newDoc = { ...data, role: 'owner', is_owner: true }
+      const { data: insertedDoc, error: insertedDocError } = await supabase
+        .from('documents')
+        .select('id, title, owner_id, share_id, updated_at')
+        .eq('id', documentId)
+        .single()
+
+      if (insertedDocError) throw insertedDocError
+
+      const newDoc = {
+        id: insertedDoc.id,
+        title: insertedDoc.title,
+        owner_id: insertedDoc.owner_id,
+        share_id: insertedDoc.share_id,
+        role: 'owner',
+        is_owner: true,
+        updated_at: insertedDoc.updated_at,
+        collaborators: []
+      }
       setDocuments([newDoc, ...documents])
       setShowCreateModal(false)
       setNewDocTitle('')
       toast.success('Document created!')
-      navigate(`/editor/${data.id}`)
+      navigate(`/editor/${documentId}`)
     } catch (error) {
       toast.error('Failed to create document')
       console.error(error)
@@ -131,7 +149,7 @@ const DashboardPage = () => {
 
   // Copy share link
   const handleCopyShareLink = async (shareId) => {
-    const link = `${window.location.origin}/editor/join/${shareId}`
+    const link = `${window.location.origin}/join/${shareId}`
     try {
       await navigator.clipboard.writeText(link)
       setShareLinkCopied(true)
@@ -151,51 +169,17 @@ const DashboardPage = () => {
 
     setIsJoining(true)
     try {
-      // Find document by share_id
-      const { data: doc, error: docError } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('share_id', joinShareId.trim().toUpperCase())
-        .single()
+      const { data, error } = await supabase.rpc('join_document_by_share_id', {
+        input_share_id: joinShareId.trim().toUpperCase(),
+      })
 
-      if (docError || !doc) {
-        throw new Error('Invalid share ID')
+      if (error || !data?.length || !data[0]?.document_id) {
+        throw new Error(error?.message || 'Invalid share ID')
       }
-
-      // Check if already collaborator or owner
-      if (doc.owner_id === user.id) {
-        toast.success('You are the owner of this document')
-        navigate(`/editor/${doc.id}`)
-        return
-      }
-
-      const { data: existingCollab } = await supabase
-        .from('document_collaborators')
-        .select('*')
-        .eq('document_id', doc.id)
-        .eq('user_id', user.id)
-        .single()
-
-      if (existingCollab) {
-        toast.success('You already have access to this document')
-        navigate(`/editor/${doc.id}`)
-        return
-      }
-
-      // Add as viewer
-      const { error: collabError } = await supabase
-        .from('document_collaborators')
-        .insert([{
-          document_id: doc.id,
-          user_id: user.id,
-          role: 'viewer'
-        }])
-
-      if (collabError) throw collabError
 
       toast.success('Joined document!')
       setJoinShareId('')
-      navigate(`/editor/${doc.id}`)
+      navigate(`/editor/${data[0].document_id}`)
     } catch (error) {
       toast.error(error.message || 'Invalid share ID')
     } finally {
@@ -358,7 +342,7 @@ const DashboardPage = () => {
                 </span>
                 <span className="flex items-center gap-1">
                   <Users className="h-4 w-4" />
-                  {doc.collaborator_count + 1}
+                  {(doc.collaborators?.length ?? 0) + 1}
                 </span>
               </div>
 
@@ -459,7 +443,7 @@ const DashboardPage = () => {
               <input
                 type="text"
                 readOnly
-                value={`${window.location.origin}/editor/join/${selectedDoc.share_id}`}
+                value={`${window.location.origin}/join/${selectedDoc.share_id}`}
                 className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
               />
               <button

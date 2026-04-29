@@ -47,6 +47,7 @@ const RegisterPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (isLoading) return
     
     if (!validateForm()) return
     

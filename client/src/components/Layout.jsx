@@ -21,6 +21,8 @@ const Layout = () => {
     navigate('/login')
   }
 
+  const displayName = user?.user_metadata?.name || user?.email || 'User'
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -61,7 +63,7 @@ const Layout = () => {
                   <User className="h-4 w-4 text-primary-600" />
                 </div>
                 <span className="text-sm font-medium text-gray-700">
-                  {user?.name}
+                  {displayName}
                 </span>
               </div>
               
@@ -104,7 +106,7 @@ const Layout = () => {
               <div className="border-t border-gray-200 pt-3">
                 <div className="flex items-center space-x-2 py-2">
                   <User className="h-5 w-5 text-gray-500" />
-                  <span className="font-medium">{user?.name}</span>
+                  <span className="font-medium">{displayName}</span>
                 </div>
                 <button
                   onClick={handleLogout}

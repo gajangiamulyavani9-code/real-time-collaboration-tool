@@ -194,7 +194,7 @@ const EditorPage = () => {
 
   // Copy share link
   const handleCopyShareLink = async () => {
-    const link = `${window.location.origin}/editor/join/${document?.share_id}`
+    const link = `${window.location.origin}/join/${document?.share_id}`
     try {
       await navigator.clipboard.writeText(link)
       setShareLinkCopied(true)
@@ -355,7 +355,7 @@ const EditorPage = () => {
               <input
                 type="text"
                 readOnly
-                value={`${window.location.origin}/editor/join/${document?.share_id}`}
+                value={`${window.location.origin}/join/${document?.share_id}`}
                 className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
               />
               <button

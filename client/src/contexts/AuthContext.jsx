@@ -67,8 +67,18 @@ export const AuthProvider = ({ children }) => {
       toast.success('Registration successful! Check your email to confirm.')
       return { success: true, user: data.user }
     } catch (error) {
-      toast.error(error.message || 'Registration failed')
-      return { success: false, error: error.message }
+      const isRateLimited =
+        error?.status === 429 ||
+        error?.code === 429 ||
+        String(error?.message || '').toLowerCase().includes('rate') ||
+        String(error?.message || '').toLowerCase().includes('too many')
+
+      const message = isRateLimited
+        ? 'Too many signup attempts. Please wait a minute and try again.'
+        : (error.message || 'Registration failed')
+
+      toast.error(message)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }
