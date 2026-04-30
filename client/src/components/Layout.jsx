@@ -23,24 +23,24 @@ const Layout = () => {
   const displayName = user?.user_metadata?.name || user?.email || 'User'
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+      <header className="sticky top-0 z-40 border-b border-white/40 bg-[rgba(255,251,244,0.78)] backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center space-x-2">
-              <div className="bg-primary-500 p-2 rounded-lg">
+              <div className="rounded-xl bg-primary-600 p-2 shadow-[0_14px_28px_rgba(54,81,107,0.24)]">
                 <FileText className="h-6 w-6 text-white" />
               </div>
-              <span className="text-xl font-bold text-gray-900">CollabDocs</span>
+              <span className="text-2xl font-semibold font-display text-charcoal-900">CollabDocs</span>
             </Link>
 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center space-x-8">
               <Link 
                 to="/"
-                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 font-medium"
+                className="flex items-center space-x-1 text-charcoal-700 hover:text-charcoal-900 font-medium"
               >
                 <FileText className="h-4 w-4" />
                 <span>My Documents</span>
@@ -48,7 +48,7 @@ const Layout = () => {
 
               <Link
                 to="/templates"
-                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 font-medium"
+                className="flex items-center space-x-1 text-charcoal-700 hover:text-charcoal-900 font-medium"
               >
                 <FileText className="h-4 w-4" />
                 <span>Templates</span>
@@ -56,7 +56,7 @@ const Layout = () => {
               
               <Link 
                 to="/dashboard?create=1"
-                className="flex items-center space-x-1 bg-primary-500 text-white px-4 py-2 rounded-lg hover:bg-primary-600 transition-colors"
+                className="flex items-center space-x-1 rounded-xl bg-primary-600 px-4 py-2 text-white shadow-[0_14px_28px_rgba(54,81,107,0.22)] transition-colors hover:bg-primary-700"
               >
                 <Plus className="h-4 w-4" />
                 <span>New Document</span>
@@ -69,14 +69,14 @@ const Layout = () => {
                 <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center">
                   <User className="h-4 w-4 text-primary-600" />
                 </div>
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-charcoal-700">
                   {displayName}
                 </span>
               </div>
               
               <button
                 onClick={handleLogout}
-                className="p-2 text-gray-500 hover:text-red-600 transition-colors"
+                className="p-2 text-charcoal-700 hover:text-red-600 transition-colors"
                 title="Logout"
               >
                 <LogOut className="h-5 w-5" />
@@ -85,7 +85,7 @@ const Layout = () => {
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2 text-gray-600"
+              className="md:hidden p-2 text-charcoal-700"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
               {isMobileMenuOpen ? (
@@ -99,11 +99,11 @@ const Layout = () => {
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-200 bg-white">
+          <div className="md:hidden border-t border-white/40 bg-[rgba(255,251,244,0.92)] backdrop-blur-xl">
             <div className="px-4 py-3 space-y-3">
               <Link 
                 to="/"
-                className="flex items-center space-x-2 text-gray-600 py-2"
+                className="flex items-center space-x-2 text-charcoal-700 py-2"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 <FileText className="h-5 w-5" />
@@ -112,7 +112,7 @@ const Layout = () => {
 
               <Link
                 to="/templates"
-                className="flex items-center space-x-2 text-gray-600 py-2"
+                className="flex items-center space-x-2 text-charcoal-700 py-2"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 <FileText className="h-5 w-5" />
@@ -121,16 +121,16 @@ const Layout = () => {
 
               <Link
                 to="/dashboard?create=1"
-                className="flex items-center space-x-2 text-primary-600 py-2 font-medium"
+                className="flex items-center space-x-2 text-primary-700 py-2 font-medium"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 <Plus className="h-5 w-5" />
                 <span>New Document</span>
               </Link>
               
-              <div className="border-t border-gray-200 pt-3">
+              <div className="border-t border-white/40 pt-3">
                 <div className="flex items-center space-x-2 py-2">
-                  <User className="h-5 w-5 text-gray-500" />
+                  <User className="h-5 w-5 text-charcoal-700" />
                   <span className="font-medium">{displayName}</span>
                 </div>
                 <button

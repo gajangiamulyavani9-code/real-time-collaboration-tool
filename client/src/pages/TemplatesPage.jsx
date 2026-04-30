@@ -4,6 +4,7 @@ import { FileText, Loader2, Plus, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
 import { DOCUMENT_TEMPLATES } from './DashboardPage'
+import { getTemplateThemeStyles } from '../lib/documentThemes'
 
 const TemplatesPage = () => {
   const navigate = useNavigate()
@@ -62,60 +63,62 @@ const TemplatesPage = () => {
   }
 
   return (
-    <div>
+    <div className="templates-page rounded-[32px] border border-white/40 bg-[rgba(255,251,244,0.48)] p-6 shadow-[0_22px_56px_rgba(48,58,69,0.07)] backdrop-blur-sm sm:p-8">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Templates</h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-700 mb-2">Curated layouts</p>
+          <h1 className="text-3xl font-semibold text-slate-900">Templates</h1>
+          <p className="text-slate-600 mt-2 max-w-2xl">
             Pick a ready-made sample and edit it in your document.
           </p>
         </div>
 
         <button
           onClick={() => navigate('/dashboard?create=1')}
-          className="inline-flex items-center justify-center gap-2 bg-primary-500 text-white px-4 py-2 rounded-lg hover:bg-primary-600 font-medium transition-colors"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 font-medium text-white shadow-[0_14px_32px_rgba(51,85,116,0.22)] transition-colors hover:bg-primary-700"
         >
           <Plus className="h-5 w-5" />
           Blank Document
         </button>
       </div>
 
-      <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+      <div className="relative mb-8">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
         <input
           type="text"
           placeholder="Search templates..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          className="w-full rounded-xl border border-white/60 bg-white/85 pl-10 pr-4 py-3 text-slate-700 shadow-[0_14px_34px_rgba(48,58,69,0.06)] backdrop-blur focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {filteredTemplates.map((template) => {
           const isCreating = creatingTemplateId === template.id
+          const theme = getTemplateThemeStyles(template.category)
 
           return (
             <div
               key={template.id}
-              className="bg-white border border-gray-200 rounded-xl p-5 hover:border-primary-200 hover:shadow-md transition-all"
+              className={`rounded-2xl border p-5 transition-all ${theme.card}`}
             >
               <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="bg-primary-50 p-3 rounded-lg text-primary-600">
+                <div className={`rounded-xl p-3 ${theme.icon}`}>
                   <FileText className="h-6 w-6" />
                 </div>
-                <span className="text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-600">
+                <span className={`rounded-full px-2 py-1 text-xs font-medium ${theme.badge}`}>
                   {template.category}
                 </span>
               </div>
 
-              <h2 className="text-lg font-semibold text-gray-900">{template.name}</h2>
-              <p className="text-sm text-gray-500 mt-2">{template.description}</p>
-              <p className="text-xs text-primary-600 font-medium mt-3">{template.sample}</p>
+              <h2 className="text-xl font-semibold text-slate-900">{template.name}</h2>
+              <p className="mt-2 text-sm text-slate-600">{template.description}</p>
+              <p className={`mt-3 text-xs font-semibold uppercase tracking-[0.18em] ${theme.accent}`}>{template.sample}</p>
 
-              <div className="mt-5 rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600 min-h-28">
-                <p className="font-medium text-gray-800">{template.title}</p>
-                <p className="mt-2">
+              <div className={`mt-5 min-h-28 rounded-xl border p-4 text-sm ${theme.preview}`}>
+                <p className="font-semibold">{template.title}</p>
+                <p className="mt-2 leading-7">
                   {template.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150)}...
                 </p>
               </div>
@@ -123,7 +126,7 @@ const TemplatesPage = () => {
               <button
                 onClick={() => createFromTemplate(template)}
                 disabled={Boolean(creatingTemplateId)}
-                className="mt-5 w-full inline-flex items-center justify-center gap-2 bg-primary-500 text-white px-4 py-2 rounded-lg hover:bg-primary-600 disabled:opacity-50 font-medium"
+                className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium shadow-[0_14px_28px_rgba(48,58,69,0.1)] disabled:opacity-50 ${theme.button}`}
               >
                 {isCreating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

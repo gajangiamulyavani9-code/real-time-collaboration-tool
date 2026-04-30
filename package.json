@@ -4,7 +4,7 @@
   "description": "Real-time collaboration tool with React, Node.js, Express, Socket.IO, and Supabase",
   "private": true,
   "scripts": {
-    "dev": "npm run client",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd server && npm run dev",
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",

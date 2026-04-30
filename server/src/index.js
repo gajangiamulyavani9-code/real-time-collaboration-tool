@@ -11,17 +11,37 @@ import { authRouter } from './routes/auth.routes.js';
 import { documentRouter } from './routes/document.routes.js';
 import { collaboratorRouter } from './routes/collaborator.routes.js';
 import { messageRouter } from './routes/message.routes.js';
+import { aiRouter } from './routes/ai.routes.js';
 import { setupSocketHandlers } from './socket/socket.handlers.js';
 import { setupPresenceTracking } from './socket/presence.tracking.js';
 
 dotenv.config();
+dotenv.config({ path: '../.env' });
 
 const app = express();
 const httpServer = createServer(app);
 
+const configuredCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const isAllowedDevOrigin = (origin) =>
+  process.env.NODE_ENV !== 'production' &&
+  /^https?:\/\/(localhost|127\.0\.0\.1):517\d$/.test(origin || '');
+
+const corsOrigin = (origin, callback) => {
+  if (!origin || configuredCorsOrigins.includes(origin) || isAllowedDevOrigin(origin)) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new Error(`CORS blocked origin: ${origin}`));
+};
+
 // Configure CORS for both Express and Socket.IO
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -43,7 +63,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      connectSrc: ["'self'", process.env.CORS_ORIGIN || 'http://localhost:5173', 'wss:', 'ws:'],
+      connectSrc: ["'self'", ...configuredCorsOrigins, 'http://localhost:5173', 'http://127.0.0.1:5173', 'wss:', 'ws:'],
     },
   },
 }));
@@ -73,6 +93,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/documents', documentRouter);
 app.use('/api/documents', collaboratorRouter);
 app.use('/api/messages', messageRouter);
+app.use('/api/ai', aiRouter);
 
 // Global error handler - must be last
 app.use(errorHandler);

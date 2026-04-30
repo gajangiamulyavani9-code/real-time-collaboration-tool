@@ -11,11 +11,25 @@ import {
   Save,
   Trash2,
   Share2,
+  Copy,
+  Mail,
+  Monitor,
+  Smartphone,
+  LayoutTemplate,
+  Clapperboard,
   MessageSquare,
   Send,
   Smile,
-  X
+  X,
+  Type,
+  TextCursorInput,
+  Bot,
+  Sparkles,
+  Video,
+  Minimize2,
+  Maximize2
 } from 'lucide-react'
+import { inferDocumentTheme } from '../lib/documentThemes'
 
 const QUICK_EMOJIS = [
   '\u{1F600}',
@@ -33,6 +47,28 @@ const QUICK_EMOJIS = [
 ]
 
 const MAX_INLINE_IMAGE_SIZE = 1.5 * 1024 * 1024
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const FONT_FAMILY_OPTIONS = [
+  { label: 'Modern Sans', value: 'Manrope, Segoe UI, sans-serif' },
+  { label: 'Classic Serif', value: 'Cormorant Garamond, Georgia, serif' },
+  { label: 'Neutral Sans', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Monospace', value: 'JetBrains Mono, Consolas, monospace' },
+]
+
+const FONT_SIZE_OPTIONS = [
+  { label: 'Small', value: '14px' },
+  { label: 'Body', value: '16px' },
+  { label: 'Reading', value: '18px' },
+  { label: 'Large', value: '20px' },
+]
+
+const LAYOUT_OPTIONS = [
+  { id: 'document', label: 'Document', helper: 'Classic writing canvas', icon: LayoutTemplate },
+  { id: 'landscape', label: 'Landscape', helper: 'Wide post or deck slide', icon: Monitor },
+  { id: 'mobile', label: 'Mobile', helper: 'Phone article preview', icon: Smartphone },
+  { id: 'story', label: 'Story', helper: '9:16 story layout', icon: Smartphone },
+  { id: 'reel', label: 'Reel', helper: 'Vertical reel cover', icon: Clapperboard },
+]
 
 const hasHtmlMarkup = (value) => /<\/?[a-z][\s\S]*>/i.test(value)
 
@@ -68,6 +104,88 @@ const isValidHttpUrl = (value) => {
 const isValidImageSrc = (value) => {
   if (/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(value)) return true
   return isValidHttpUrl(value)
+}
+
+const isValidVideoFileSrc = (value) => {
+  if (!isValidHttpUrl(value)) return false
+  return /\.(mp4|webm|ogg)(\?.*)?$/i.test(new URL(value).pathname + new URL(value).search)
+}
+
+const getSafeVideoEmbedSrc = (value) => {
+  if (!isValidHttpUrl(value)) return ''
+
+  const url = new URL(value)
+  const host = url.hostname.replace(/^www\./i, '').toLowerCase()
+
+  if (host === 'youtu.be') {
+    const videoId = url.pathname.split('/').filter(Boolean)[0]
+    return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : ''
+  }
+
+  if (host === 'youtube.com' || host === 'm.youtube.com') {
+    const videoId = url.searchParams.get('v') || url.pathname.split('/').filter(Boolean).pop()
+    return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : ''
+  }
+
+  if (host === 'youtube-nocookie.com' && url.pathname.startsWith('/embed/')) {
+    return url.toString()
+  }
+
+  if (host === 'vimeo.com') {
+    const videoId = url.pathname.split('/').filter(Boolean)[0]
+    return /^\d+$/.test(videoId || '') ? `https://player.vimeo.com/video/${videoId}` : ''
+  }
+
+  if (host === 'player.vimeo.com' && url.pathname.startsWith('/video/')) {
+    return url.toString()
+  }
+
+  return ''
+}
+
+const buildSafeStyle = (styleValue = '') => {
+  const allowed = new Map()
+  const rules = styleValue
+    .split(';')
+    .map((rule) => rule.trim())
+    .filter(Boolean)
+
+  rules.forEach((rule) => {
+    const separatorIndex = rule.indexOf(':')
+    if (separatorIndex === -1) return
+
+    const property = rule.slice(0, separatorIndex).trim().toLowerCase()
+    const value = rule.slice(separatorIndex + 1).trim()
+
+    if (!value) return
+
+    if (property === 'font-size' && /^\d+(px|rem|em|%)$/i.test(value)) {
+      allowed.set(property, value)
+    }
+
+    if (
+      property === 'font-family' &&
+      /^[a-z0-9\s,'"-]+$/i.test(value)
+    ) {
+      allowed.set(property, value)
+    }
+
+    if (property === 'font-weight' && /^(400|500|600|700|800|bold|normal)$/i.test(value)) {
+      allowed.set(property, value)
+    }
+
+    if (property === 'font-style' && /^(italic|normal)$/i.test(value)) {
+      allowed.set(property, value)
+    }
+
+    if (property === 'text-decoration' && /^(underline|none)$/i.test(value)) {
+      allowed.set(property, value)
+    }
+  })
+
+  return Array.from(allowed.entries())
+    .map(([property, value]) => `${property}: ${value}`)
+    .join('; ')
 }
 
 const readJson = (value) => {
@@ -121,6 +239,20 @@ const ensureImageIds = (root) => {
     }
     image.draggable = true
   })
+
+  root.querySelectorAll('.video-embed').forEach((video) => {
+    if (!video.dataset.videoId) {
+      video.dataset.videoId = crypto.randomUUID()
+    }
+    if (
+      !video.classList.contains('video-size-small') &&
+      !video.classList.contains('video-size-medium') &&
+      !video.classList.contains('video-size-large')
+    ) {
+      video.classList.add('video-size-large')
+    }
+    video.draggable = true
+  })
 }
 
 const sanitizeEditorHtml = (value = '') => {
@@ -129,14 +261,24 @@ const sanitizeEditorHtml = (value = '') => {
   const template = window.document.createElement('template')
   template.innerHTML = value
 
-  template.content.querySelectorAll('script, style, iframe, object, embed').forEach((node) => node.remove())
+  template.content.querySelectorAll('script, style, object, embed').forEach((node) => node.remove())
   template.content.querySelectorAll('*').forEach((node) => {
     Array.from(node.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase()
       const attrValue = attr.value
 
-      if (name.startsWith('on') || name === 'style') {
+      if (name.startsWith('on')) {
         node.removeAttribute(attr.name)
+        return
+      }
+
+      if (name === 'style') {
+        const safeStyle = buildSafeStyle(attrValue)
+        if (safeStyle) {
+          node.setAttribute('style', safeStyle)
+        } else {
+          node.removeAttribute(attr.name)
+        }
         return
       }
 
@@ -176,6 +318,44 @@ const sanitizeEditorHtml = (value = '') => {
         if (name === 'draggable') return
       }
 
+      if (node.tagName === 'IFRAME') {
+        if (name === 'src') {
+          const url = getSafeVideoEmbedSrc(attrValue)
+          if (url) {
+            node.setAttribute('src', url)
+          } else {
+            node.remove()
+          }
+          return
+        }
+        if (['title', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy'].includes(name)) return
+      }
+
+      if (node.tagName === 'VIDEO') {
+        if (name === 'src') {
+          const url = normalizeUrl(attrValue)
+          if (isValidVideoFileSrc(url)) {
+            node.setAttribute('src', url)
+          } else {
+            node.remove()
+          }
+          return
+        }
+        if (['controls', 'playsinline', 'preload'].includes(name)) return
+      }
+
+      if (node.tagName === 'DIV' && node.classList.contains('video-embed')) {
+        if (name === 'class') {
+          const safeClasses = attrValue
+            .split(/\s+/)
+            .filter((className) => ['video-embed', 'video-size-small', 'video-size-medium', 'video-size-large'].includes(className))
+          node.setAttribute('class', Array.from(new Set(['video-embed', ...safeClasses])).join(' '))
+          return
+        }
+        if (name === 'data-video-id') return
+        if (name === 'draggable') return
+      }
+
       node.removeAttribute(attr.name)
     })
   })
@@ -197,13 +377,22 @@ const EditorPage = () => {
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [showShareModal, setShowShareModal] = useState(false)
+  const [showLayoutModal, setShowLayoutModal] = useState(false)
   const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showLinkPanel, setShowLinkPanel] = useState(false)
+  const [showVideoPanel, setShowVideoPanel] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [linkText, setLinkText] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
   const [selectedImageId, setSelectedImageId] = useState('')
+  const [selectedVideoId, setSelectedVideoId] = useState('')
+  const [selectedVideoSize, setSelectedVideoSize] = useState('large')
+  const [activeFontFamily, setActiveFontFamily] = useState(FONT_FAMILY_OPTIONS[0].value)
+  const [activeFontSize, setActiveFontSize] = useState(FONT_SIZE_OPTIONS[1].value)
+  const [layoutMode, setLayoutMode] = useState('document')
+  const [isAiThinking, setIsAiThinking] = useState(false)
   
   const chatEndRef = useRef(null)
   const editorRef = useRef(null)
@@ -386,7 +575,7 @@ const EditorPage = () => {
     if (showChat && chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, showChat])
+  }, [messages, showChat, isAiThinking])
 
   useEffect(() => {
     if (!editorRef.current || window.document.activeElement === editorRef.current) return
@@ -402,7 +591,10 @@ const EditorPage = () => {
     editorRef.current.querySelectorAll('img').forEach((image) => {
       image.classList.toggle('is-selected', image.dataset.imageId === selectedImageId)
     })
-  }, [selectedImageId, content])
+    editorRef.current.querySelectorAll('.video-embed').forEach((video) => {
+      video.classList.toggle('is-selected', video.dataset.videoId === selectedVideoId)
+    })
+  }, [selectedImageId, selectedVideoId, content])
 
   const broadcastDocumentChange = (updates) => {
     realtimeChannelRef.current?.send({
@@ -605,6 +797,85 @@ const EditorPage = () => {
     saveEditorSelection()
   }
 
+  const wrapSelectionWithStyle = (styles) => {
+    if (!canEdit || !editorRef.current) return
+
+    focusEditor()
+    restoreEditorSelection()
+
+    const selection = window.getSelection()
+    if (!selection?.rangeCount) return
+
+    const range = selection.getRangeAt(0)
+    if (!editorRef.current.contains(range.commonAncestorContainer)) return
+
+    const styleString = Object.entries(styles)
+      .filter(([, value]) => value)
+      .map(([property, value]) => `${property}: ${value}`)
+      .join('; ')
+
+    if (!styleString) return
+
+    if (range.collapsed) {
+      window.document.execCommand('insertHTML', false, `<span style="${styleString}">\u200B</span>`)
+      const insertedSpan = editorRef.current.querySelector('span[style]')
+      if (insertedSpan?.textContent?.includes('\u200B')) {
+        const nextRange = window.document.createRange()
+        nextRange.setStart(insertedSpan.firstChild, 1)
+        nextRange.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(nextRange)
+        savedSelectionRef.current = nextRange
+      }
+    } else {
+      const selectedHtml = range.cloneContents()
+      const wrapper = window.document.createElement('span')
+      wrapper.setAttribute('style', styleString)
+      wrapper.appendChild(selectedHtml)
+      range.deleteContents()
+      range.insertNode(wrapper)
+      const nextRange = window.document.createRange()
+      nextRange.selectNodeContents(wrapper)
+      nextRange.collapse(false)
+      selection.removeAllRanges()
+      selection.addRange(nextRange)
+      savedSelectionRef.current = nextRange
+    }
+
+    updateDocumentContent(editorRef.current.innerHTML)
+  }
+
+  const handleFontFamilyChange = (e) => {
+    const nextFont = e.target.value
+    setActiveFontFamily(nextFont)
+    wrapSelectionWithStyle({ 'font-family': nextFont })
+  }
+
+  const handleFontSizeChange = (e) => {
+    const nextSize = e.target.value
+    setActiveFontSize(nextSize)
+    wrapSelectionWithStyle({ 'font-size': nextSize })
+  }
+
+  const openSocialShare = (platform) => {
+    const baseLink = `${window.location.origin}/join/${document?.share_id}`
+    const encodedLink = encodeURIComponent(baseLink)
+    const encodedTitle = encodeURIComponent(title || 'CollabDocs document')
+    const encodedBody = encodeURIComponent(`Take a look at this document: ${baseLink}`)
+
+    const targets = {
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${title || 'CollabDocs document'} - ${baseLink}`)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedLink}`,
+      x: `https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedLink}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedLink}`,
+      email: `mailto:?subject=${encodedTitle}&body=${encodedBody}`,
+    }
+
+    const shareUrl = targets[platform]
+    if (!shareUrl) return
+    window.open(shareUrl, '_blank', 'noopener,noreferrer')
+  }
+
   const handleInsertEmoji = (emoji) => {
     insertHtmlIntoEditor(emoji)
     setShowEmojiPicker(false)
@@ -627,6 +898,108 @@ const EditorPage = () => {
     setLinkUrl('')
     setLinkText('')
     setShowLinkPanel(false)
+  }
+
+  const handleInsertVideo = (e) => {
+    e.preventDefault()
+    const url = normalizeUrl(videoUrl)
+    const embedSrc = getSafeVideoEmbedSrc(url)
+
+    if (embedSrc) {
+      insertHtmlIntoEditor(
+        `<div class="video-embed video-size-large" data-video-id="${crypto.randomUUID()}" draggable="true"><iframe src="${escapeHtml(embedSrc)}" title="Embedded video" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`
+      )
+      setVideoUrl('')
+      setShowVideoPanel(false)
+      return
+    }
+
+    if (isValidVideoFileSrc(url)) {
+      insertHtmlIntoEditor(
+        `<div class="video-embed video-size-large" data-video-id="${crypto.randomUUID()}" draggable="true"><video src="${escapeHtml(url)}" controls playsinline preload="metadata"></video></div>`
+      )
+      setVideoUrl('')
+      setShowVideoPanel(false)
+      return
+    }
+
+    toast.error('Paste a YouTube, Vimeo, or direct MP4/WebM/Ogg video URL')
+  }
+
+  const handleAskAi = async (mode = 'ask') => {
+    const prompt = newMessage.trim()
+
+    if (mode === 'ask' && !prompt) {
+      toast.error('Type a question for the AI assistant')
+      return
+    }
+
+    setShowChat(true)
+    setIsAiThinking(true)
+
+    try {
+      if (editorRef.current) {
+        contentRef.current = sanitizeEditorHtml(editorRef.current.innerHTML)
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+
+      if (!token) {
+        throw new Error('Please log in again before using AI')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/ai/assist`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentId,
+          prompt,
+          mode,
+          messages: messages
+            .filter((message) => !message.is_ai)
+            .slice(-8)
+            .map((message) => ({
+              content: message.content,
+              sender: { name: message.sender?.name || (message.sender_id === user?.id ? 'You' : 'Collaborator') },
+            })),
+        }),
+      })
+
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.message || 'AI assistant failed')
+      }
+
+      const answer = payload?.data?.answer?.trim()
+      if (!answer) {
+        throw new Error('AI returned an empty response')
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-${Date.now()}`,
+          sender_id: 'ai-assistant',
+          sender: { name: 'AI Assistant' },
+          content: answer,
+          created_at: new Date().toISOString(),
+          is_ai: true,
+        },
+      ])
+
+      if (mode === 'ask') {
+        setNewMessage('')
+      }
+    } catch (error) {
+      toast.error(error.message || 'AI assistant failed')
+    } finally {
+      setIsAiThinking(false)
+    }
   }
 
   const handleOpenImagePicker = () => {
@@ -669,11 +1042,34 @@ const EditorPage = () => {
     const image = e.target.closest('img')
     if (image && editorRef.current?.contains(image)) {
       e.preventDefault()
-      setSelectedImageId(image.dataset.imageId || '')
+      const imageId = image.dataset.imageId || crypto.randomUUID()
+      image.dataset.imageId = imageId
+      image.draggable = true
+      setSelectedImageId(imageId)
+      setSelectedVideoId('')
+      return
+    }
+
+    const video = e.target.closest('.video-embed')
+    if (video && editorRef.current?.contains(video)) {
+      e.preventDefault()
+      const videoId = video.dataset.videoId || crypto.randomUUID()
+      video.dataset.videoId = videoId
+      video.draggable = true
+      setSelectedImageId('')
+      setSelectedVideoId(videoId)
+      setSelectedVideoSize(
+        video.classList.contains('video-size-small')
+          ? 'small'
+          : video.classList.contains('video-size-medium')
+          ? 'medium'
+          : 'large'
+      )
       return
     }
 
     setSelectedImageId('')
+    setSelectedVideoId('')
 
     const link = e.target.closest('a')
     if (!link?.href) return
@@ -683,7 +1079,19 @@ const EditorPage = () => {
   }
 
   const deleteSelectedImage = () => {
-    if (!selectedImageId || !editorRef.current) return
+    if (!editorRef.current) return
+
+    if (selectedVideoId) {
+      const video = editorRef.current.querySelector(`.video-embed[data-video-id="${CSS.escape(selectedVideoId)}"]`)
+      if (!video) return
+
+      video.remove()
+      setSelectedVideoId('')
+      updateDocumentContent(editorRef.current.innerHTML)
+      return
+    }
+
+    if (!selectedImageId) return
 
     const image = editorRef.current.querySelector(`img[data-image-id="${CSS.escape(selectedImageId)}"]`)
     if (!image) return
@@ -693,17 +1101,41 @@ const EditorPage = () => {
     updateDocumentContent(editorRef.current.innerHTML)
   }
 
-  const handleEditorDragStart = (e) => {
-    const image = e.target.closest('img')
-    if (!image || !editorRef.current?.contains(image)) return
+  const resizeSelectedVideo = (size) => {
+    if (!selectedVideoId || !editorRef.current) return
 
-    const imageId = image.dataset.imageId || crypto.randomUUID()
-    image.dataset.imageId = imageId
-    image.draggable = true
-    draggedImageIdRef.current = imageId
-    setSelectedImageId(imageId)
+    const video = editorRef.current.querySelector(`.video-embed[data-video-id="${CSS.escape(selectedVideoId)}"]`)
+    if (!video) return
+
+    video.classList.remove('video-size-small', 'video-size-medium', 'video-size-large')
+    video.classList.add(`video-size-${size}`)
+    setSelectedVideoSize(size)
+    updateDocumentContent(editorRef.current.innerHTML)
+  }
+
+  const handleEditorDragStart = (e) => {
+    const media = e.target.closest('img, .video-embed')
+    if (!media || !editorRef.current?.contains(media)) return
+
+    const isVideo = media.classList.contains('video-embed')
+    const mediaId = isVideo
+      ? media.dataset.videoId || crypto.randomUUID()
+      : media.dataset.imageId || crypto.randomUUID()
+
+    if (isVideo) {
+      media.dataset.videoId = mediaId
+      setSelectedVideoId(mediaId)
+      setSelectedImageId('')
+    } else {
+      media.dataset.imageId = mediaId
+      setSelectedImageId(mediaId)
+      setSelectedVideoId('')
+    }
+
+    media.draggable = true
+    draggedImageIdRef.current = `${isVideo ? 'video' : 'image'}:${mediaId}`
     e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', imageId)
+    e.dataTransfer.setData('text/plain', draggedImageIdRef.current)
   }
 
   const handleEditorDragOver = (e) => {
@@ -713,12 +1145,15 @@ const EditorPage = () => {
   }
 
   const handleEditorDrop = (e) => {
-    const imageId = draggedImageIdRef.current
-    if (!imageId || !editorRef.current) return
+    const dragValue = draggedImageIdRef.current
+    if (!dragValue || !editorRef.current) return
 
     e.preventDefault()
-    const image = editorRef.current.querySelector(`img[data-image-id="${CSS.escape(imageId)}"]`)
-    if (!image) return
+    const [mediaType, mediaId] = dragValue.split(':')
+    const media = mediaType === 'video'
+      ? editorRef.current.querySelector(`.video-embed[data-video-id="${CSS.escape(mediaId || '')}"]`)
+      : editorRef.current.querySelector(`img[data-image-id="${CSS.escape(mediaId || '')}"]`)
+    if (!media) return
 
     const range =
       window.document.caretRangeFromPoint?.(e.clientX, e.clientY) ||
@@ -730,12 +1165,18 @@ const EditorPage = () => {
         return nextRange
       })()
 
-    if (!range || image.contains(range.startContainer)) return
+    if (!range || media.contains(range.startContainer)) return
 
-    image.remove()
-    range.insertNode(image)
+    media.remove()
+    range.insertNode(media)
     draggedImageIdRef.current = ''
-    setSelectedImageId(imageId)
+    if (mediaType === 'video') {
+      setSelectedVideoId(mediaId)
+      setSelectedImageId('')
+    } else {
+      setSelectedImageId(mediaId)
+      setSelectedVideoId('')
+    }
     updateDocumentContent(editorRef.current.innerHTML)
   }
 
@@ -786,18 +1227,20 @@ const EditorPage = () => {
     return <LoadingSpinner fullScreen />
   }
 
+  const documentTheme = inferDocumentTheme(title)
+
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col -mx-4 -my-8">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <div className={`editor-shell editor-theme-${documentTheme} -mx-4 -my-8 flex h-[calc(100vh-8rem)] flex-col`}>
+      <header className="flex items-center justify-between border-b border-white/50 bg-[rgba(255,251,244,0.82)] px-4 py-4 backdrop-blur-xl">
         <div className="flex items-center gap-4">
           <button
             onClick={async () => {
               await flushPendingSave()
               navigate('/dashboard')
             }}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="rounded-xl p-2 text-charcoal-700 transition-colors hover:bg-white/70"
           >
-            <ArrowLeft className="h-5 w-5 text-gray-600" />
+            <ArrowLeft className="h-5 w-5" />
           </button>
           
           <div>
@@ -806,9 +1249,9 @@ const EditorPage = () => {
               value={title}
               onChange={handleTitleChange}
               disabled={!canEdit}
-              className="font-semibold text-lg bg-transparent border-none focus:outline-none focus:ring-0 disabled:text-gray-600"
+              className="border-none bg-transparent font-display text-3xl font-semibold text-charcoal-900 focus:outline-none focus:ring-0 disabled:text-charcoal-700"
             />
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-charcoal-700/65">
               {isSaving ? 'Saving...' : 'Live auto-save'}
             </div>
           </div>
@@ -816,9 +1259,17 @@ const EditorPage = () => {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowLayoutModal(true)}
+            className="flex items-center gap-2 rounded-xl bg-white/76 px-4 py-2 text-charcoal-800 shadow-[0_12px_24px_rgba(48,58,69,0.06)] hover:bg-white"
+          >
+            <LayoutTemplate className="h-4 w-4" />
+            Modes
+          </button>
+
+          <button
             onClick={handleManualSave}
             disabled={!canEdit || isSaving}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-white shadow-[0_14px_28px_rgba(54,81,107,0.2)] hover:bg-primary-700 disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             Save
@@ -826,7 +1277,7 @@ const EditorPage = () => {
 
           <button
             onClick={() => setShowShareModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+            className="flex items-center gap-2 rounded-xl bg-white/76 px-4 py-2 text-charcoal-800 shadow-[0_12px_24px_rgba(48,58,69,0.06)] hover:bg-white"
           >
             <Share2 className="h-4 w-4" />
             Share
@@ -834,7 +1285,7 @@ const EditorPage = () => {
 
           <button
             onClick={() => setShowChat(!showChat)}
-            className={`p-2 rounded-lg transition-colors ${showChat ? 'bg-primary-100 text-primary-600' : 'hover:bg-gray-100 text-gray-600'}`}
+            className={`rounded-xl p-2 transition-colors ${showChat ? 'bg-primary-100 text-primary-700' : 'text-charcoal-700 hover:bg-white/70'}`}
           >
             <MessageSquare className="h-5 w-5" />
           </button>
@@ -844,14 +1295,47 @@ const EditorPage = () => {
       <div className="flex-1 flex overflow-hidden">
         <div className={`flex-1 ${showChat ? 'mr-80' : ''}`}>
           <div className="h-full p-8 overflow-auto">
-            <div className="max-w-4xl mx-auto bg-white min-h-full shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-              <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3">
+            <div className={`editor-stage editor-stage-${layoutMode}`}>
+              <div className={`editor-frame editor-canvas editor-canvas-${layoutMode} mx-auto overflow-hidden rounded-[28px]`}>
+              <div className="editor-toolbar flex flex-wrap items-center gap-2 border-b border-white/45 px-4 py-3">
+                <div className="flex items-center gap-2 rounded-xl bg-white/80 px-3 py-2 shadow-[0_10px_22px_rgba(48,58,69,0.06)]">
+                  <Type className="h-4 w-4 text-charcoal-700/70" />
+                  <select
+                    value={activeFontFamily}
+                    onChange={handleFontFamilyChange}
+                    disabled={!canEdit}
+                    className="bg-transparent text-sm text-charcoal-800 focus:outline-none"
+                  >
+                    {FONT_FAMILY_OPTIONS.map((font) => (
+                      <option key={font.value} value={font.value}>
+                        {font.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-xl bg-white/80 px-3 py-2 shadow-[0_10px_22px_rgba(48,58,69,0.06)]">
+                  <TextCursorInput className="h-4 w-4 text-charcoal-700/70" />
+                  <select
+                    value={activeFontSize}
+                    onChange={handleFontSizeChange}
+                    disabled={!canEdit}
+                    className="bg-transparent text-sm text-charcoal-800 focus:outline-none"
+                  >
+                    {FONT_SIZE_OPTIONS.map((size) => (
+                      <option key={size.value} value={size.value}>
+                        {size.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setShowEmojiPicker(prev => !prev)}
                   disabled={!canEdit}
                   title="Add emoji"
-                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                  className="rounded-xl p-2 text-charcoal-700 hover:bg-white hover:text-primary-700 disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <Smile className="h-4 w-4" />
                 </button>
@@ -859,19 +1343,32 @@ const EditorPage = () => {
                   type="button"
                   onClick={() => {
                     setShowLinkPanel(prev => !prev)
+                    setShowVideoPanel(false)
                   }}
                   disabled={!canEdit}
                   title="Add link"
-                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                  className="rounded-xl p-2 text-charcoal-700 hover:bg-white hover:text-primary-700 disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <Link className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVideoPanel(prev => !prev)
+                    setShowLinkPanel(false)
+                  }}
+                  disabled={!canEdit}
+                  title="Add video"
+                  className="rounded-xl p-2 text-charcoal-700 hover:bg-white hover:text-primary-700 disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Video className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
                   onClick={handleOpenImagePicker}
                   disabled={!canEdit}
                   title="Add image"
-                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                  className="rounded-xl p-2 text-charcoal-700 hover:bg-white hover:text-primary-700 disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <Image className="h-4 w-4" />
                 </button>
@@ -883,14 +1380,44 @@ const EditorPage = () => {
                   className="hidden"
                 />
 
-                {selectedImageId && (
-                  <div className="flex items-center gap-2 border-l border-gray-200 pl-2">
-                    <span className="text-xs text-gray-500">Image selected</span>
+                {(selectedImageId || selectedVideoId) && (
+                  <div className="flex items-center gap-2 border-l border-white/45 pl-2">
+                    <span className="text-xs text-charcoal-700/70">
+                      {selectedVideoId ? 'Video selected' : 'Image selected'}
+                    </span>
+                    {selectedVideoId && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => resizeSelectedVideo('small')}
+                          title="Small video"
+                          className={`rounded-xl p-2 hover:bg-white ${selectedVideoSize === 'small' ? 'bg-primary-100 text-primary-700' : 'text-charcoal-700'}`}
+                        >
+                          <Minimize2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resizeSelectedVideo('medium')}
+                          title="Medium video"
+                          className={`h-8 rounded-xl px-2 text-xs font-semibold hover:bg-white ${selectedVideoSize === 'medium' ? 'bg-primary-100 text-primary-700' : 'text-charcoal-700'}`}
+                        >
+                          M
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resizeSelectedVideo('large')}
+                          title="Large video"
+                          className={`rounded-xl p-2 hover:bg-white ${selectedVideoSize === 'large' ? 'bg-primary-100 text-primary-700' : 'text-charcoal-700'}`}
+                        >
+                          <Maximize2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={deleteSelectedImage}
-                      title="Delete image"
-                      className="p-2 rounded-lg text-red-600 hover:bg-red-50"
+                      title={selectedVideoId ? 'Delete video' : 'Delete image'}
+                      className="rounded-xl p-2 text-red-600 hover:bg-red-50"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -898,13 +1425,13 @@ const EditorPage = () => {
                 )}
 
                 {showEmojiPicker && (
-                  <div className="flex flex-wrap gap-1 border-l border-gray-200 pl-2">
+                  <div className="flex flex-wrap gap-1 border-l border-white/45 pl-2">
                     {QUICK_EMOJIS.map((emoji) => (
                       <button
                         key={emoji}
                         type="button"
                         onClick={() => handleInsertEmoji(emoji)}
-                        className="h-8 w-8 rounded-lg hover:bg-white text-lg"
+                        className="h-8 w-8 rounded-xl text-lg hover:bg-white"
                         title={`Insert ${emoji}`}
                       >
                         {emoji}
@@ -915,27 +1442,47 @@ const EditorPage = () => {
               </div>
 
               {showLinkPanel && (
-                <form onSubmit={handleInsertLink} className="grid gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:grid-cols-[1fr_1fr_auto]">
+                <form onSubmit={handleInsertLink} className="grid gap-3 border-b border-white/45 bg-white/76 px-4 py-3 sm:grid-cols-[1fr_1fr_auto]">
                   <input
                     type="text"
                     inputMode="url"
                     value={linkUrl}
                     onChange={(e) => setLinkUrl(e.target.value)}
                     placeholder="https://example.com"
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    className="rounded-xl border border-white/60 bg-white/90 px-3 py-2 text-sm text-charcoal-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                   <input
                     type="text"
                     value={linkText}
                     onChange={(e) => setLinkText(e.target.value)}
                     placeholder="Link text"
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    className="rounded-xl border border-white/60 bg-white/90 px-3 py-2 text-sm text-charcoal-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 text-sm"
+                    className="rounded-xl bg-primary-600 px-4 py-2 text-sm text-white hover:bg-primary-700"
                   >
                     Add URL
+                  </button>
+                </form>
+              )}
+
+              {showVideoPanel && (
+                <form onSubmit={handleInsertVideo} className="grid gap-3 border-b border-white/45 bg-white/76 px-4 py-3 sm:grid-cols-[1fr_auto]">
+                  <input
+                    type="text"
+                    inputMode="url"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    placeholder="YouTube, Vimeo, or direct video URL"
+                    className="rounded-xl border border-white/60 bg-white/90 px-3 py-2 text-sm text-charcoal-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm text-white hover:bg-primary-700"
+                  >
+                    <Video className="h-4 w-4" />
+                    Add video
                   </button>
                 </form>
               )}
@@ -955,26 +1502,68 @@ const EditorPage = () => {
                 onMouseUp={saveEditorSelection}
                 onBlur={flushPendingSave}
                 data-placeholder={canEdit ? 'Start typing...' : 'View-only mode'}
-                className="document-editor min-h-[600px] border-none shadow-none rounded-none text-gray-800"
-                style={{ fontFamily: 'system-ui, sans-serif', fontSize: '16px', lineHeight: '1.6' }}
+                className="document-editor min-h-[600px] border-none shadow-none rounded-none"
+                style={{ fontSize: '16px', lineHeight: '1.6' }}
               />
+            </div>
             </div>
           </div>
         </div>
 
         {showChat && (
-          <div className="w-80 bg-white border-l border-gray-200 flex flex-col animate-slide-in">
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="glass-panel flex w-80 flex-col border-l border-white/40 animate-slide-in">
+            <div className="flex items-center justify-between border-b border-white/40 p-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" />
                 Chat
               </h3>
-              <button onClick={() => setShowChat(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X className="h-4 w-4 text-gray-500" />
+              <button onClick={() => setShowChat(false)} className="rounded p-1 hover:bg-white/70">
+                <X className="h-4 w-4 text-charcoal-700/70" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 border-b border-white/40 p-3">
+              <button
+                type="button"
+                onClick={() => handleAskAi('summarize')}
+                disabled={isAiThinking}
+                className="inline-flex items-center justify-center gap-1 rounded-xl bg-white/78 px-2 py-2 text-xs font-medium text-charcoal-800 hover:bg-white disabled:opacity-50"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Summary
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAskAi('improve')}
+                disabled={isAiThinking}
+                className="inline-flex items-center justify-center gap-1 rounded-xl bg-white/78 px-2 py-2 text-xs font-medium text-charcoal-800 hover:bg-white disabled:opacity-50"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Improve
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAskAi('actions')}
+                disabled={isAiThinking}
+                className="inline-flex items-center justify-center gap-1 rounded-xl bg-white/78 px-2 py-2 text-xs font-medium text-charcoal-800 hover:bg-white disabled:opacity-50"
+              >
+                <TextCursorInput className="h-3.5 w-3.5" />
+                Actions
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {isAiThinking && (
+                <div className="flex flex-col items-start">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-none bg-white/86 p-3 text-sm text-charcoal-700 shadow-[0_10px_20px_rgba(48,58,69,0.06)]">
+                    <p className="mb-1 flex items-center gap-1 text-xs font-medium text-primary-700">
+                      <Bot className="h-3.5 w-3.5" />
+                      AI Assistant
+                    </p>
+                    <p>Thinking...</p>
+                  </div>
+                </div>
+              )}
               {messages.map((msg) => (
                 <div
                   key={msg.id}
@@ -982,19 +1571,22 @@ const EditorPage = () => {
                 >
                   <div
                     className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-                      msg.sender_id === user?.id
+                      msg.is_ai
+                        ? 'bg-white/90 text-charcoal-800 rounded-bl-none shadow-[0_10px_20px_rgba(48,58,69,0.06)]'
+                        : msg.sender_id === user?.id
                         ? 'bg-primary-500 text-white rounded-br-none'
                         : 'bg-gray-100 text-gray-800 rounded-bl-none'
                     }`}
                   >
-                    {msg.sender_id !== user?.id && (
-                      <p className="text-xs font-medium mb-1 opacity-75">
+                    {(msg.sender_id !== user?.id || msg.is_ai) && (
+                      <p className="mb-1 text-xs font-medium opacity-75">
+                        {msg.is_ai && <Bot className="mr-1 inline h-3.5 w-3.5" />}
                         {msg.sender?.name || 'Unknown'}
                       </p>
                     )}
-                    <p>{msg.content}</p>
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
                   </div>
-                  <span className="text-xs text-gray-400 mt-1">
+                  <span className="mt-1 text-xs text-charcoal-700/50">
                     {formatTime(msg.created_at)}
                   </span>
                 </div>
@@ -1002,21 +1594,30 @@ const EditorPage = () => {
               <div ref={chatEndRef} />
             </div>
 
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-200">
+            <form onSubmit={handleSendMessage} className="border-t border-white/40 p-4">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  className="flex-1 rounded-xl border border-white/60 bg-white/84 px-3 py-2 text-sm text-charcoal-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 <button
                   type="submit"
                   disabled={!newMessage.trim()}
-                  className="p-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+                  className="rounded-xl bg-primary-600 p-2 text-white hover:bg-primary-700 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAskAi('ask')}
+                  disabled={!newMessage.trim() || isAiThinking}
+                  title="Ask AI"
+                  className="rounded-xl bg-white/84 p-2 text-primary-700 hover:bg-white disabled:opacity-50"
+                >
+                  <Bot className="h-4 w-4" />
                 </button>
               </div>
             </form>
@@ -1025,30 +1626,125 @@ const EditorPage = () => {
       </div>
 
       {showShareModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md m-4">
-            <h2 className="text-lg font-semibold mb-4">Share Document</h2>
-            <p className="text-gray-600 mb-4">Share this link:</p>
-            <div className="flex gap-2 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(35,42,49,0.42)] backdrop-blur-sm">
+          <div className="m-4 w-full max-w-xl rounded-[28px] border border-white/60 bg-[rgba(255,251,244,0.96)] p-6 shadow-[0_28px_72px_rgba(35,42,49,0.22)]">
+            <div className="mb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary-700">Share</p>
+              <h2 className="mt-1 font-display text-3xl font-semibold text-charcoal-900">Share Document</h2>
+              <p className="mt-2 text-sm text-charcoal-700/75">Copy the link or send it directly to social apps.</p>
+            </div>
+
+            <div className="mb-4 flex gap-2">
               <input
                 type="text"
                 readOnly
                 value={`${window.location.origin}/join/${document?.share_id}`}
-                className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                className="flex-1 rounded-xl border border-white/60 bg-white/90 px-4 py-3 text-sm text-charcoal-800"
               />
               <button
                 onClick={handleCopyShareLink}
-                className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+                className="inline-flex items-center justify-center rounded-xl bg-primary-600 px-4 py-3 text-white hover:bg-primary-700"
               >
-                {shareLinkCopied ? 'Copied!' : <Share2 className="h-4 w-4" />}
+                {shareLinkCopied ? 'Copied!' : <Copy className="h-4 w-4" />}
               </button>
             </div>
+
+            <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <button
+                onClick={() => openSocialShare('whatsapp')}
+                className="rounded-xl bg-[#e8f5ec] px-4 py-3 text-sm font-medium text-[#1f7a3b] hover:bg-[#dcf0e3]"
+              >
+                WhatsApp
+              </button>
+              <button
+                onClick={() => openSocialShare('linkedin')}
+                className="rounded-xl bg-[#e7f1f7] px-4 py-3 text-sm font-medium text-[#1f5c88] hover:bg-[#d9ebf4]"
+              >
+                LinkedIn
+              </button>
+              <button
+                onClick={() => openSocialShare('x')}
+                className="rounded-xl bg-[#edf0f3] px-4 py-3 text-sm font-medium text-charcoal-800 hover:bg-[#e4e8ec]"
+              >
+                X / Twitter
+              </button>
+              <button
+                onClick={() => openSocialShare('facebook')}
+                className="rounded-xl bg-[#e9effb] px-4 py-3 text-sm font-medium text-[#345b9d] hover:bg-[#dfe8f8]"
+              >
+                Facebook
+              </button>
+              <button
+                onClick={() => openSocialShare('email')}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#f5ede3] px-4 py-3 text-sm font-medium text-[#8d5f35] hover:bg-[#f0e4d5]"
+              >
+                <Mail className="h-4 w-4" />
+                Email
+              </button>
+            </div>
+
             <button
               onClick={() => setShowShareModal(false)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="w-full rounded-xl border border-white/60 bg-white/84 px-4 py-3 text-charcoal-800 hover:bg-white"
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {showLayoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(35,42,49,0.42)] backdrop-blur-sm">
+          <div className="m-4 w-full max-w-3xl rounded-[28px] border border-white/60 bg-[rgba(255,251,244,0.96)] p-6 shadow-[0_28px_72px_rgba(35,42,49,0.22)]">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary-700">Layout modes</p>
+                <h2 className="mt-1 font-display text-3xl font-semibold text-charcoal-900">Preview for social formats</h2>
+                <p className="mt-2 text-sm text-charcoal-700/75">
+                  Switch the editor canvas between document, landscape, mobile, story, and reel-friendly layouts.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowLayoutModal(false)}
+                className="rounded-xl p-2 text-charcoal-700/60 hover:bg-white/70 hover:text-charcoal-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {LAYOUT_OPTIONS.map((option) => {
+                const Icon = option.icon
+                const isActive = layoutMode === option.id
+
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setLayoutMode(option.id)
+                      setShowLayoutModal(false)
+                    }}
+                    className={`rounded-2xl border p-5 text-left transition-all ${
+                      isActive
+                        ? 'border-primary-500 bg-primary-50/80 shadow-[0_18px_32px_rgba(54,81,107,0.12)]'
+                        : 'border-white/60 bg-white/76 hover:border-primary-200 hover:bg-white'
+                    }`}
+                  >
+                    <div className={`mb-4 inline-flex rounded-xl p-3 ${
+                      isActive ? 'bg-primary-100 text-primary-700' : 'bg-[rgba(91,130,157,0.08)] text-charcoal-700/70'
+                    }`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-charcoal-900">{option.label}</h3>
+                    <p className="mt-2 text-sm text-charcoal-700/72">{option.helper}</p>
+                    <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-primary-700/80">
+                      {isActive ? 'Current view' : 'Switch view'}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}
