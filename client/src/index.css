@@ -56,13 +56,13 @@
 
 /* Editor specific styles */
 .document-editor {
-  @apply min-h-[500px] p-8 bg-white rounded-lg shadow-sm border border-gray-200;
+  @apply min-h-[500px] p-8 bg-white;
   outline: none;
   line-height: 1.6;
 }
 
 .document-editor:empty::before {
-  content: attr(placeholder);
+  content: attr(data-placeholder);
   @apply text-gray-400;
 }
 
@@ -80,6 +80,29 @@
 
 .document-editor p {
   @apply mb-3;
+}
+
+.document-editor a {
+  @apply text-primary-600 underline underline-offset-2;
+}
+
+.document-editor img {
+  @apply my-4 max-w-full rounded-lg border border-gray-200;
+  max-height: 420px;
+  object-fit: contain;
+  cursor: move;
+}
+
+.document-editor img[data-image-id] {
+  display: block;
+}
+
+.document-editor img:hover {
+  @apply ring-2 ring-primary-200;
+}
+
+.document-editor img.is-selected {
+  @apply ring-4 ring-primary-300;
 }
 
 .document-editor ul {

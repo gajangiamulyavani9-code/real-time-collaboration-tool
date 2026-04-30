@@ -6,11 +6,182 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft,
+  Image,
+  Link,
+  Save,
+  Trash2,
   Share2,
   MessageSquare,
   Send,
+  Smile,
   X
 } from 'lucide-react'
+
+const QUICK_EMOJIS = [
+  '\u{1F600}',
+  '\u{1F602}',
+  '\u{1F60D}',
+  '\u{1F44D}',
+  '\u{1F44F}',
+  '\u{1F389}',
+  '\u{1F525}',
+  '\u{1F4A1}',
+  '\u2705',
+  '\u2B50',
+  '\u2764\uFE0F',
+  '\u{1F680}',
+]
+
+const MAX_INLINE_IMAGE_SIZE = 1.5 * 1024 * 1024
+
+const hasHtmlMarkup = (value) => /<\/?[a-z][\s\S]*>/i.test(value)
+
+const escapeHtml = (value) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+const normalizeContentForEditor = (value = '') => {
+  if (!value) return ''
+  return hasHtmlMarkup(value) ? sanitizeEditorHtml(value) : escapeHtml(value).replace(/\n/g, '<br>')
+}
+
+const normalizeUrl = (value) => {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
+const isValidHttpUrl = (value) => {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const isValidImageSrc = (value) => {
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(value)) return true
+  return isValidHttpUrl(value)
+}
+
+const readJson = (value) => {
+  try {
+    return value ? JSON.parse(value) : null
+  } catch {
+    return null
+  }
+}
+
+const getPlainText = (html = '') => {
+  if (typeof window === 'undefined') return html
+  const element = window.document.createElement('div')
+  element.innerHTML = html
+  return element.textContent || ''
+}
+
+const persistLocalDraft = (key, updates) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      title: updates.title,
+      content: updates.content,
+      savedAt: new Date().toISOString(),
+      plainText: getPlainText(updates.content),
+    }))
+  } catch (error) {
+    console.warn('Local draft backup failed:', error)
+  }
+}
+
+const clearLocalDraft = (key) => {
+  try {
+    localStorage.removeItem(key)
+  } catch (error) {
+    console.warn('Local draft cleanup failed:', error)
+  }
+}
+
+const getLocalDraft = (key) => {
+  try {
+    return readJson(localStorage.getItem(key))
+  } catch {
+    return null
+  }
+}
+
+const ensureImageIds = (root) => {
+  root.querySelectorAll('img').forEach((image) => {
+    if (!image.dataset.imageId) {
+      image.dataset.imageId = crypto.randomUUID()
+    }
+    image.draggable = true
+  })
+}
+
+const sanitizeEditorHtml = (value = '') => {
+  if (typeof window === 'undefined') return value
+
+  const template = window.document.createElement('template')
+  template.innerHTML = value
+
+  template.content.querySelectorAll('script, style, iframe, object, embed').forEach((node) => node.remove())
+  template.content.querySelectorAll('*').forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase()
+      const attrValue = attr.value
+
+      if (name.startsWith('on') || name === 'style') {
+        node.removeAttribute(attr.name)
+        return
+      }
+
+      if (node.tagName === 'A') {
+        if (name === 'href') {
+          const url = normalizeUrl(attrValue)
+          if (isValidHttpUrl(url)) {
+            node.setAttribute('href', url)
+            node.setAttribute('target', '_blank')
+            node.setAttribute('rel', 'noopener noreferrer')
+          } else {
+            node.removeAttribute('href')
+          }
+          return
+        }
+        if (name === 'target' || name === 'rel') return
+      }
+
+      if (node.tagName === 'IMG') {
+        if (!node.getAttribute('data-image-id')) {
+          node.setAttribute('data-image-id', crypto.randomUUID())
+        }
+        node.setAttribute('draggable', 'true')
+
+        if (name === 'src') {
+          const url = normalizeUrl(attrValue)
+          const src = attrValue.startsWith('data:image/') ? attrValue : url
+          if (isValidImageSrc(src)) {
+            node.setAttribute('src', src)
+          } else {
+            node.remove()
+          }
+          return
+        }
+        if (name === 'alt') return
+        if (name === 'data-image-id') return
+        if (name === 'draggable') return
+      }
+
+      node.removeAttribute(attr.name)
+    })
+  })
+
+  return template.innerHTML
+}
 
 const EditorPage = () => {
   const { documentId } = useParams()
@@ -28,12 +199,25 @@ const EditorPage = () => {
   const [showShareModal, setShowShareModal] = useState(false)
   const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showLinkPanel, setShowLinkPanel] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkText, setLinkText] = useState('')
+  const [selectedImageId, setSelectedImageId] = useState('')
   
   const chatEndRef = useRef(null)
+  const editorRef = useRef(null)
+  const imageInputRef = useRef(null)
+  const savedSelectionRef = useRef(null)
+  const draggedImageIdRef = useRef('')
   const saveTimeoutRef = useRef(null)
+  const pendingSaveRef = useRef(null)
+  const latestSaveTokenRef = useRef(0)
   const realtimeChannelRef = useRef(null)
+  const lastPersistedAtRef = useRef('')
   const contentRef = useRef('')
   const titleRef = useRef('')
+  const localDraftKey = `collab-doc-draft-${documentId}-${user?.id || 'guest'}`
 
   // Load document
   useEffect(() => {
@@ -59,11 +243,35 @@ const EditorPage = () => {
           throw new Error('Access denied')
         }
 
+        const serverContent = normalizeContentForEditor(doc.content || '')
+        const localDraft = getLocalDraft(localDraftKey)
+        const draftHasChanges =
+          localDraft?.content &&
+          normalizeContentForEditor(localDraft.content) !== serverContent
+        const draftIsNewer =
+          localDraft?.content &&
+          localDraft?.savedAt &&
+          new Date(localDraft.savedAt).getTime() > new Date(doc.updated_at || 0).getTime()
+        const shouldRestoreDraft = draftHasChanges || draftIsNewer
+        const docContent = shouldRestoreDraft ? normalizeContentForEditor(localDraft.content) : serverContent
+
+        if (shouldRestoreDraft) {
+          const { error } = await supabase
+            .from('documents')
+            .update({ title: localDraft.title || doc.title, content: docContent })
+            .eq('id', documentId)
+
+          if (error) {
+            toast.error('Restored unsaved local draft. Server save still needs retry.')
+          }
+        }
+
         setDocument(doc)
-        setContent(doc.content || '')
-        setTitle(doc.title)
-        contentRef.current = doc.content || ''
-        titleRef.current = doc.title
+        setContent(docContent)
+        setTitle(shouldRestoreDraft ? localDraft.title || doc.title : doc.title)
+        contentRef.current = docContent
+        titleRef.current = shouldRestoreDraft ? localDraft.title || doc.title : doc.title
+        lastPersistedAtRef.current = doc.updated_at || ''
         setCanEdit(isOwner || collabRole === 'editor')
 
         // Load messages
@@ -99,8 +307,9 @@ const EditorPage = () => {
         if (payload.userId === user?.id) return
 
         if (typeof payload.content === 'string' && payload.content !== contentRef.current) {
-          contentRef.current = payload.content
-          setContent(payload.content)
+          const nextContent = normalizeContentForEditor(payload.content)
+          contentRef.current = nextContent
+          setContent(nextContent)
         }
 
         if (typeof payload.title === 'string' && payload.title !== titleRef.current) {
@@ -112,13 +321,35 @@ const EditorPage = () => {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'documents', filter: `id=eq.${documentId}` },
         (payload) => {
-          if (payload.new.content !== contentRef.current) {
-            contentRef.current = payload.new.content || ''
-            setContent(payload.new.content)
+          const nextTitle = payload.new.title || ''
+          const nextContent = normalizeContentForEditor(payload.new.content || '')
+          const pendingSave = pendingSaveRef.current
+          const persistedAt = payload.new.updated_at || ''
+          const incomingSavePayload = { title: nextTitle, content: nextContent }
+
+          if (
+            pendingSave &&
+            !isSameSavePayload(incomingSavePayload, {
+              title: pendingSave.title,
+              content: normalizeContentForEditor(pendingSave.content || ''),
+            })
+          ) {
+            return
           }
-          if (payload.new.title !== titleRef.current) {
-            titleRef.current = payload.new.title || ''
-            setTitle(payload.new.title)
+
+          if (lastPersistedAtRef.current && persistedAt && persistedAt < lastPersistedAtRef.current) {
+            return
+          }
+
+          lastPersistedAtRef.current = persistedAt || lastPersistedAtRef.current
+
+          if (nextContent !== contentRef.current) {
+            contentRef.current = nextContent
+            setContent(nextContent)
+          }
+          if (nextTitle !== titleRef.current) {
+            titleRef.current = nextTitle
+            setTitle(nextTitle)
           }
         }
       )
@@ -141,6 +372,9 @@ const EditorPage = () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
+      if (pendingSaveRef.current) {
+        saveDocumentNow(pendingSaveRef.current, latestSaveTokenRef.current)
+      }
       realtimeChannelRef.current = null
       docSubscription.unsubscribe()
       msgSubscription.unsubscribe()
@@ -154,6 +388,22 @@ const EditorPage = () => {
     }
   }, [messages, showChat])
 
+  useEffect(() => {
+    if (!editorRef.current || window.document.activeElement === editorRef.current) return
+    if (editorRef.current.innerHTML !== content) {
+      editorRef.current.innerHTML = content
+      ensureImageIds(editorRef.current)
+    }
+  }, [content])
+
+  useEffect(() => {
+    if (!editorRef.current) return
+
+    editorRef.current.querySelectorAll('img').forEach((image) => {
+      image.classList.toggle('is-selected', image.dataset.imageId === selectedImageId)
+    })
+  }, [selectedImageId, content])
+
   const broadcastDocumentChange = (updates) => {
     realtimeChannelRef.current?.send({
       type: 'broadcast',
@@ -165,24 +415,149 @@ const EditorPage = () => {
     })
   }
 
+  const isSameSavePayload = (first, second) =>
+    first?.title === second?.title && first?.content === second?.content
+
+  const saveDocumentNow = async (updates, token = latestSaveTokenRef.current) => {
+    if (!canEdit && !isLoading) return false
+
+    try {
+      const { data, error } = await supabase
+        .from('documents')
+        .update(updates)
+        .eq('id', documentId)
+        .select('id, title, content, updated_at')
+        .single()
+
+      if (error) throw error
+      if (!data?.id) throw new Error('No document was updated')
+
+      const persistedPayload = {
+        title: data.title || '',
+        content: normalizeContentForEditor(data.content || ''),
+      }
+      const expectedPayload = {
+        title: updates.title || '',
+        content: normalizeContentForEditor(updates.content || ''),
+      }
+
+      if (!isSameSavePayload(persistedPayload, expectedPayload)) {
+        throw new Error('Saved content did not match the latest editor content')
+      }
+
+      lastPersistedAtRef.current = data.updated_at || lastPersistedAtRef.current
+
+      const isLatestSave = token === latestSaveTokenRef.current && isSameSavePayload(updates, pendingSaveRef.current)
+
+      if (isLatestSave) {
+        pendingSaveRef.current = null
+        clearLocalDraft(localDraftKey)
+      } else if (token !== latestSaveTokenRef.current) {
+        const latestUpdates = {
+          title: titleRef.current,
+          content: contentRef.current,
+        }
+        pendingSaveRef.current = latestUpdates
+        persistLocalDraft(localDraftKey, latestUpdates)
+        window.setTimeout(() => {
+          saveDocumentNow(latestUpdates, latestSaveTokenRef.current)
+        }, 0)
+      }
+
+      return true
+    } catch (error) {
+      console.error('Auto-save failed:', error)
+      persistLocalDraft(localDraftKey, updates)
+      toast.error('Could not save latest changes')
+      return false
+    } finally {
+      if (token === latestSaveTokenRef.current || !pendingSaveRef.current) {
+        setIsSaving(false)
+      }
+    }
+  }
+
+  const flushPendingSave = async () => {
+    if (!pendingSaveRef.current) return
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+      saveTimeoutRef.current = null
+    }
+
+    const token = latestSaveTokenRef.current
+    await saveDocumentNow(pendingSaveRef.current, token)
+  }
+
+  const handleManualSave = async () => {
+    if (!canEdit) return
+
+    if (editorRef.current) {
+      ensureImageIds(editorRef.current)
+      contentRef.current = sanitizeEditorHtml(editorRef.current.innerHTML)
+    }
+
+    setIsSaving(true)
+    const token = latestSaveTokenRef.current + 1
+    latestSaveTokenRef.current = token
+    pendingSaveRef.current = {
+      title: titleRef.current,
+      content: contentRef.current,
+    }
+    persistLocalDraft(localDraftKey, pendingSaveRef.current)
+    const saved = await saveDocumentNow({
+      title: titleRef.current,
+      content: contentRef.current,
+    }, token)
+
+    if (saved) {
+      toast.success('Document saved')
+    }
+  }
+
   const scheduleAutoSave = (updates) => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
 
+    const token = latestSaveTokenRef.current + 1
+    latestSaveTokenRef.current = token
+    pendingSaveRef.current = updates
+    persistLocalDraft(localDraftKey, updates)
     setIsSaving(true)
     saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        await supabase
-          .from('documents')
-          .update(updates)
-          .eq('id', documentId)
-      } catch (error) {
-        console.error('Auto-save failed:', error)
-      } finally {
-        setIsSaving(false)
+      await saveDocumentNow(updates, token)
+    }, 350)
+  }
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (window.document.visibilityState === 'hidden') {
+        flushPendingSave()
       }
-    }, 500)
+    }
+
+  const handleBeforeUnload = () => {
+      if (pendingSaveRef.current) {
+        persistLocalDraft(localDraftKey, pendingSaveRef.current)
+      }
+    }
+
+    window.document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [localDraftKey])
+
+  const updateDocumentContent = (newContent) => {
+    const sanitizedContent = sanitizeEditorHtml(newContent)
+    contentRef.current = sanitizedContent
+    setContent(sanitizedContent)
+    broadcastDocumentChange({ content: sanitizedContent })
+    scheduleAutoSave({ title: titleRef.current, content: sanitizedContent })
   }
 
   const handleTitleChange = (e) => {
@@ -198,11 +573,174 @@ const EditorPage = () => {
   const handleContentChange = (e) => {
     if (!canEdit) return
 
-    const newContent = e.target.value
-    contentRef.current = newContent
-    setContent(newContent)
-    broadcastDocumentChange({ content: newContent })
-    scheduleAutoSave({ title: titleRef.current, content: newContent })
+    ensureImageIds(e.currentTarget)
+    updateDocumentContent(e.currentTarget.innerHTML)
+    saveEditorSelection()
+  }
+
+  const focusEditor = () => {
+    editorRef.current?.focus()
+  }
+
+  const saveEditorSelection = () => {
+    const selection = window.getSelection()
+    if (!selection?.rangeCount || !editorRef.current?.contains(selection.anchorNode)) return
+    savedSelectionRef.current = selection.getRangeAt(0)
+  }
+
+  const restoreEditorSelection = () => {
+    const selection = window.getSelection()
+    if (!selection || !savedSelectionRef.current) return
+    selection.removeAllRanges()
+    selection.addRange(savedSelectionRef.current)
+  }
+
+  const insertHtmlIntoEditor = (html) => {
+    if (!canEdit) return
+
+    focusEditor()
+    restoreEditorSelection()
+    window.document.execCommand('insertHTML', false, html)
+    updateDocumentContent(editorRef.current?.innerHTML || '')
+    saveEditorSelection()
+  }
+
+  const handleInsertEmoji = (emoji) => {
+    insertHtmlIntoEditor(emoji)
+    setShowEmojiPicker(false)
+  }
+
+  const handleInsertLink = (e) => {
+    e.preventDefault()
+    const url = normalizeUrl(linkUrl)
+
+    if (!isValidHttpUrl(url)) {
+      toast.error('Enter a valid URL')
+      return
+    }
+
+    const selectedText = savedSelectionRef.current?.toString()
+    const text = linkText.trim() || selectedText || url
+    insertHtmlIntoEditor(
+      `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`
+    )
+    setLinkUrl('')
+    setLinkText('')
+    setShowLinkPanel(false)
+  }
+
+  const handleOpenImagePicker = () => {
+    if (!canEdit) return
+    saveEditorSelection()
+    imageInputRef.current?.click()
+  }
+
+  const handleImageSelected = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Choose an image file')
+      return
+    }
+    if (file.size > MAX_INLINE_IMAGE_SIZE) {
+      toast.error('Image is too large. Please choose one under 1.5 MB')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const src = String(reader.result || '')
+      if (!isValidImageSrc(src)) {
+        toast.error('Could not read this image')
+        return
+      }
+
+      insertHtmlIntoEditor(
+        `<img src="${src}" alt="${escapeHtml(file.name || 'Document image')}" data-image-id="${crypto.randomUUID()}" draggable="true" />`
+      )
+    }
+    reader.onerror = () => toast.error('Could not read this image')
+    reader.readAsDataURL(file)
+  }
+
+  const handleEditorClick = (e) => {
+    const image = e.target.closest('img')
+    if (image && editorRef.current?.contains(image)) {
+      e.preventDefault()
+      setSelectedImageId(image.dataset.imageId || '')
+      return
+    }
+
+    setSelectedImageId('')
+
+    const link = e.target.closest('a')
+    if (!link?.href) return
+
+    e.preventDefault()
+    window.open(link.href, '_blank', 'noopener,noreferrer')
+  }
+
+  const deleteSelectedImage = () => {
+    if (!selectedImageId || !editorRef.current) return
+
+    const image = editorRef.current.querySelector(`img[data-image-id="${CSS.escape(selectedImageId)}"]`)
+    if (!image) return
+
+    image.remove()
+    setSelectedImageId('')
+    updateDocumentContent(editorRef.current.innerHTML)
+  }
+
+  const handleEditorDragStart = (e) => {
+    const image = e.target.closest('img')
+    if (!image || !editorRef.current?.contains(image)) return
+
+    const imageId = image.dataset.imageId || crypto.randomUUID()
+    image.dataset.imageId = imageId
+    image.draggable = true
+    draggedImageIdRef.current = imageId
+    setSelectedImageId(imageId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', imageId)
+  }
+
+  const handleEditorDragOver = (e) => {
+    if (!draggedImageIdRef.current) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleEditorDrop = (e) => {
+    const imageId = draggedImageIdRef.current
+    if (!imageId || !editorRef.current) return
+
+    e.preventDefault()
+    const image = editorRef.current.querySelector(`img[data-image-id="${CSS.escape(imageId)}"]`)
+    if (!image) return
+
+    const range =
+      window.document.caretRangeFromPoint?.(e.clientX, e.clientY) ||
+      (() => {
+        const position = window.document.caretPositionFromPoint?.(e.clientX, e.clientY)
+        if (!position) return null
+        const nextRange = window.document.createRange()
+        nextRange.setStart(position.offsetNode, position.offset)
+        return nextRange
+      })()
+
+    if (!range || image.contains(range.startContainer)) return
+
+    image.remove()
+    range.insertNode(image)
+    draggedImageIdRef.current = ''
+    setSelectedImageId(imageId)
+    updateDocumentContent(editorRef.current.innerHTML)
+  }
+
+  const handleEditorDragEnd = () => {
+    draggedImageIdRef.current = ''
   }
 
   // Send message
@@ -227,6 +765,7 @@ const EditorPage = () => {
 
   // Copy share link
   const handleCopyShareLink = async () => {
+    await flushPendingSave()
     const link = `${window.location.origin}/join/${document?.share_id}`
     try {
       await navigator.clipboard.writeText(link)
@@ -252,7 +791,10 @@ const EditorPage = () => {
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={async () => {
+              await flushPendingSave()
+              navigate('/dashboard')
+            }}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ArrowLeft className="h-5 w-5 text-gray-600" />
@@ -274,6 +816,15 @@ const EditorPage = () => {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={handleManualSave}
+            disabled={!canEdit || isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            Save
+          </button>
+
+          <button
             onClick={() => setShowShareModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
           >
@@ -293,13 +844,118 @@ const EditorPage = () => {
       <div className="flex-1 flex overflow-hidden">
         <div className={`flex-1 ${showChat ? 'mr-80' : ''}`}>
           <div className="h-full p-8 overflow-auto">
-            <div className="max-w-4xl mx-auto bg-white min-h-full shadow-sm border border-gray-200 rounded-lg">
-              <textarea
-                value={content}
-                onChange={handleContentChange}
-                disabled={!canEdit}
-                placeholder={canEdit ? "Start typing..." : "View-only mode"}
-                className="w-full min-h-[600px] p-8 resize-none border-none focus:outline-none focus:ring-0 disabled:bg-gray-50 text-gray-800 leading-relaxed"
+            <div className="max-w-4xl mx-auto bg-white min-h-full shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+              <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(prev => !prev)}
+                  disabled={!canEdit}
+                  title="Add emoji"
+                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Smile className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLinkPanel(prev => !prev)
+                  }}
+                  disabled={!canEdit}
+                  title="Add link"
+                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Link className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenImagePicker}
+                  disabled={!canEdit}
+                  title="Add image"
+                  className="p-2 rounded-lg text-gray-600 hover:bg-white hover:text-primary-600 disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Image className="h-4 w-4" />
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelected}
+                  className="hidden"
+                />
+
+                {selectedImageId && (
+                  <div className="flex items-center gap-2 border-l border-gray-200 pl-2">
+                    <span className="text-xs text-gray-500">Image selected</span>
+                    <button
+                      type="button"
+                      onClick={deleteSelectedImage}
+                      title="Delete image"
+                      className="p-2 rounded-lg text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+
+                {showEmojiPicker && (
+                  <div className="flex flex-wrap gap-1 border-l border-gray-200 pl-2">
+                    {QUICK_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => handleInsertEmoji(emoji)}
+                        className="h-8 w-8 rounded-lg hover:bg-white text-lg"
+                        title={`Insert ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {showLinkPanel && (
+                <form onSubmit={handleInsertLink} className="grid gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    type="text"
+                    inputMode="url"
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    placeholder="https://example.com"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={linkText}
+                    onChange={(e) => setLinkText(e.target.value)}
+                    placeholder="Link text"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 text-sm"
+                  >
+                    Add URL
+                  </button>
+                </form>
+              )}
+
+              <div
+                ref={editorRef}
+                contentEditable={canEdit}
+                suppressContentEditableWarning
+                dangerouslySetInnerHTML={{ __html: content }}
+                onInput={handleContentChange}
+                onClick={handleEditorClick}
+                onDragStart={handleEditorDragStart}
+                onDragOver={handleEditorDragOver}
+                onDrop={handleEditorDrop}
+                onDragEnd={handleEditorDragEnd}
+                onKeyUp={saveEditorSelection}
+                onMouseUp={saveEditorSelection}
+                onBlur={flushPendingSave}
+                data-placeholder={canEdit ? 'Start typing...' : 'View-only mode'}
+                className="document-editor min-h-[600px] border-none shadow-none rounded-none text-gray-800"
                 style={{ fontFamily: 'system-ui, sans-serif', fontSize: '16px', lineHeight: '1.6' }}
               />
             </div>

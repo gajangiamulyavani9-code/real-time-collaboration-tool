@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import EditorPage from './pages/EditorPage'
 import JoinDocumentPage from './pages/JoinDocumentPage'
+import TemplatesPage from './pages/TemplatesPage'
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
             <Route path="/editor/:documentId" element={<EditorPage />} />
             <Route path="/join/:shareId" element={<JoinDocumentPage />} />
             <Route path="/editor/join/:shareId" element={<JoinDocumentPage />} />

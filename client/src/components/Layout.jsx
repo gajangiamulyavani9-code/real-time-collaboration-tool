@@ -4,7 +4,6 @@ import {
   FileText, 
   LogOut, 
   User, 
-  Settings,
   Plus,
   Menu,
   X
@@ -46,9 +45,17 @@ const Layout = () => {
                 <FileText className="h-4 w-4" />
                 <span>My Documents</span>
               </Link>
+
+              <Link
+                to="/templates"
+                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 font-medium"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Templates</span>
+              </Link>
               
               <Link 
-                to="/"
+                to="/dashboard?create=1"
                 className="flex items-center space-x-1 bg-primary-500 text-white px-4 py-2 rounded-lg hover:bg-primary-600 transition-colors"
               >
                 <Plus className="h-4 w-4" />
@@ -101,6 +108,24 @@ const Layout = () => {
               >
                 <FileText className="h-5 w-5" />
                 <span>My Documents</span>
+              </Link>
+
+              <Link
+                to="/templates"
+                className="flex items-center space-x-2 text-gray-600 py-2"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <FileText className="h-5 w-5" />
+                <span>Templates</span>
+              </Link>
+
+              <Link
+                to="/dashboard?create=1"
+                className="flex items-center space-x-2 text-primary-600 py-2 font-medium"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Plus className="h-5 w-5" />
+                <span>New Document</span>
               </Link>
               
               <div className="border-t border-gray-200 pt-3">
